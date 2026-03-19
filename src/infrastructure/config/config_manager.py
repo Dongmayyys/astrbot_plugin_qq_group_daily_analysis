@@ -140,6 +140,10 @@ class ConfigManager:
         """获取是否启用自动分析"""
         return self._get_group("auto_analysis").get("enable_auto_analysis", False)
 
+    def get_private_report_user_id(self) -> str:
+        """获取私聊报告接收人 ID，为空则发到群里"""
+        return self._get_group("auto_analysis").get("private_report_user_id", "")
+
     def get_output_format(self) -> str:
         """获取输出格式"""
         return self._get_group("basic").get("output_format", "image")

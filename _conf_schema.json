@@ -112,6 +112,12 @@
                 "items": {
                     "type": "string"
                 }
+            },
+            "private_report_user_id": {
+                "type": "string",
+                "description": "私聊报告接收人 ID",
+                "default": "",
+                "hint": "填写后，定时分析报告将通过私聊发送给该用户，而不是发到群里。留空则保持发到群里。仅 QQ（OneBot）平台有效。"
             }
         }
     },

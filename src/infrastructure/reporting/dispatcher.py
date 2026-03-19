@@ -33,21 +33,32 @@ class ReportDispatcher:
         platform_id: str | None = None,
     ):
         """
-        分发分析报告
+        分发分析报告。
+        当配置了 private_report_user_id 时，报告通过私聊发送给指定用户。
         """
         trace_id = TraceContext.get()
         output_format = self.config_manager.get_output_format()
-        logger.info(
-            f"[{trace_id}] 正在分发群 {group_id} 的报告 (格式: {output_format})"
-        )
 
-        success = False
-        if output_format == "image":
-            success = await self._dispatch_image(group_id, analysis_result, platform_id)
-        elif output_format == "pdf":
-            success = await self._dispatch_pdf(group_id, analysis_result, platform_id)
+        # Check if private delivery is configured
+        private_user_id = self.config_manager.get_private_report_user_id()
+        if private_user_id:
+            logger.info(
+                f"[{trace_id}] 群 {group_id} 的报告将通过私聊发送给 {private_user_id}"
+            )
+            success = await self._dispatch_private(
+                group_id, analysis_result, platform_id, private_user_id, output_format
+            )
         else:
-            success = await self._dispatch_text(group_id, analysis_result, platform_id)
+            logger.info(
+                f"[{trace_id}] 正在分发群 {group_id} 的报告 (格式: {output_format})"
+            )
+            success = False
+            if output_format == "image":
+                success = await self._dispatch_image(group_id, analysis_result, platform_id)
+            elif output_format == "pdf":
+                success = await self._dispatch_pdf(group_id, analysis_result, platform_id)
+            else:
+                success = await self._dispatch_text(group_id, analysis_result, platform_id)
 
         if success:
             logger.info(f"[{trace_id}] 群 {group_id} 的报告分发成功")
@@ -171,6 +182,147 @@ class ReportDispatcher:
         except Exception as e:
             logger.error(f"[{TraceContext.get()}] Failed to dispatch text report: {e}")
             return False
+
+    # ================================================================
+    # Private message delivery (OneBot only)
+    # ================================================================
+
+    async def _dispatch_private(
+        self,
+        group_id: str,
+        analysis_result: dict[str, Any],
+        platform_id: str | None,
+        user_id: str,
+        output_format: str,
+    ) -> bool:
+        """
+        Send the report as a private message to the specified user.
+        Uses the low-level OneBot send_private_msg action.
+        """
+        trace_id = TraceContext.get()
+        bot = self._get_bot_instance(platform_id)
+        if not bot:
+            logger.error(
+                f"[{trace_id}] Private dispatch failed: cannot get bot instance"
+            )
+            return False
+
+        try:
+            if output_format == "image":
+                return await self._send_private_image(
+                    bot, user_id, group_id, analysis_result, platform_id, trace_id
+                )
+            elif output_format == "pdf":
+                # PDF fallback to text for private messages
+                logger.info(
+                    f"[{trace_id}] PDF format not supported for private delivery, "
+                    "falling back to text."
+                )
+                return await self._send_private_text(
+                    bot, user_id, group_id, analysis_result, trace_id
+                )
+            else:
+                return await self._send_private_text(
+                    bot, user_id, group_id, analysis_result, trace_id
+                )
+        except Exception as e:
+            logger.error(f"[{trace_id}] Private dispatch error: {e}")
+            return False
+
+    async def _send_private_text(
+        self, bot, user_id: str, group_id: str,
+        analysis_result: dict[str, Any], trace_id: str,
+    ) -> bool:
+        """Send text report via private message."""
+        try:
+            text_report = self.report_generator.generate_text_report(analysis_result)
+            message = [
+                {"type": "text", "data": {"text": f"📊 群 {group_id} 每日分析报告：\n\n{text_report}"}}
+            ]
+            await bot.call_action(
+                "send_private_msg", user_id=int(user_id), message=message
+            )
+            return True
+        except Exception as e:
+            logger.error(f"[{trace_id}] Private text send failed: {e}")
+            return False
+
+    async def _send_private_image(
+        self, bot, user_id: str, group_id: str,
+        analysis_result: dict[str, Any],
+        platform_id: str | None, trace_id: str,
+    ) -> bool:
+        """Generate image report and send via private message."""
+        if not self._html_render_func:
+            logger.warning(
+                f"[{trace_id}] No HTML render func, falling back to private text."
+            )
+            return await self._send_private_text(
+                bot, user_id, group_id, analysis_result, trace_id
+            )
+
+        try:
+            async def avatar_getter(uid: str):
+                if not platform_id:
+                    return None
+                adapter = self.message_sender.bot_manager.get_adapter(platform_id)
+                if adapter and hasattr(adapter, "get_user_avatar_url"):
+                    return await adapter.get_user_avatar_url(uid, size=40)
+                return None
+
+            image_url, html_content = await self.report_generator.generate_image_report(
+                analysis_result,
+                group_id,
+                self._html_render_func,
+                avatar_getter=avatar_getter,
+            )
+        except Exception as e:
+            logger.error(f"[{trace_id}] Image generation failed: {e}")
+            image_url, html_content = None, None
+
+        if image_url:
+            try:
+                import os
+                caption = TraceContext.make_report_caption()
+                message = []
+                if caption:
+                    message.append({"type": "text", "data": {"text": caption}})
+
+                # Determine the file reference for the image
+                file_str = image_url
+                if not image_url.startswith(("http://", "https://", "base64://")):
+                    if os.path.isabs(image_url):
+                        file_str = f"file:///{image_url}" if not image_url.startswith("/") else f"file://{image_url}"
+                    else:
+                        file_str = f"file:///{os.path.abspath(image_url)}"
+
+                message.append({"type": "image", "data": {"file": file_str}})
+                await bot.call_action(
+                    "send_private_msg", user_id=int(user_id), message=message
+                )
+                return True
+            except Exception as e:
+                logger.warning(f"[{trace_id}] Private image send failed: {e}")
+
+        # Fallback to text
+        logger.warning(f"[{trace_id}] Image dispatch failed, falling back to text.")
+        return await self._send_private_text(
+            bot, user_id, group_id, analysis_result, trace_id
+        )
+
+    def _get_bot_instance(self, platform_id: str | None):
+        """Get the raw bot instance for direct API calls."""
+        if not platform_id:
+            # Try first available platform
+            pids = self.message_sender.bot_manager.get_platform_ids()
+            if pids:
+                platform_id = pids[0]
+            else:
+                return None
+        adapter = self.message_sender.bot_manager.get_adapter(platform_id)
+        if adapter and hasattr(adapter, "bot"):
+            return adapter.bot
+        return None
 
     # ================================================================
     # 图片报告上传到群文件 / 群相册（仅 QQ 平台 image 格式）
