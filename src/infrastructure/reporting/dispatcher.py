@@ -282,25 +282,21 @@ class ReportDispatcher:
 
         if image_url:
             try:
-                import os
                 caption = TraceContext.make_report_caption()
                 message = []
                 if caption:
                     message.append({"type": "text", "data": {"text": caption}})
 
-                # Determine the file reference for the image
-                file_str = image_url
-                if not image_url.startswith(("http://", "https://", "base64://")):
-                    if os.path.isabs(image_url):
-                        file_str = f"file:///{image_url}" if not image_url.startswith("/") else f"file://{image_url}"
-                    else:
-                        file_str = f"file:///{os.path.abspath(image_url)}"
-
-                message.append({"type": "image", "data": {"file": file_str}})
-                await bot.call_action(
-                    "send_private_msg", user_id=int(user_id), message=message
-                )
-                return True
+                # Always use base64 to avoid cross-container file path issues
+                b64_str = await self._image_to_base64(image_url)
+                if b64_str:
+                    message.append({"type": "image", "data": {"file": b64_str}})
+                    await bot.call_action(
+                        "send_private_msg", user_id=int(user_id), message=message
+                    )
+                    return True
+                else:
+                    logger.warning(f"[{trace_id}] Failed to convert image to base64")
             except Exception as e:
                 logger.warning(f"[{trace_id}] Private image send failed: {e}")
 
@@ -309,6 +305,32 @@ class ReportDispatcher:
         return await self._send_private_text(
             bot, user_id, group_id, analysis_result, trace_id
         )
+
+    @staticmethod
+    async def _image_to_base64(image_url: str) -> str | None:
+        """Convert an image (file path, base64://, or data: URI) to base64:// string."""
+        try:
+            if image_url.startswith("base64://"):
+                return image_url
+            if image_url.startswith("data:"):
+                parts = image_url.split(",", 1)
+                if len(parts) == 2:
+                    return f"base64://{parts[1]}"
+                return None
+
+            import os
+            file_path = image_url
+            if image_url.startswith("file:///"):
+                file_path = image_url[len("file:///"):]
+            elif image_url.startswith("file://"):
+                file_path = image_url[len("file://"):]
+
+            if os.path.isfile(file_path):
+                with open(file_path, "rb") as f:
+                    return f"base64://{base64.b64encode(f.read()).decode()}"
+            return None
+        except Exception:
+            return None
 
     def _get_bot_instance(self, platform_id: str | None):
         """Get the raw bot instance for direct API calls."""
