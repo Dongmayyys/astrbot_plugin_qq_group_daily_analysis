@@ -235,9 +235,22 @@ class ReportDispatcher:
     ) -> bool:
         """Send text report via private message."""
         try:
+            # Resolve group name for private report identification
+            group_label = group_id
+            try:
+                pids = self.message_sender.bot_manager.get_platform_ids()
+                if pids:
+                    adapter = self.message_sender.bot_manager.get_adapter(pids[0])
+                    if adapter:
+                        group_info = await adapter.get_group_info(group_id)
+                        if group_info and group_info.group_name:
+                            group_label = group_info.group_name
+            except Exception:
+                pass  # Fallback to group_id
+
             text_report = self.report_generator.generate_text_report(analysis_result)
             message = [
-                {"type": "text", "data": {"text": f"📊 群 {group_id} 每日分析报告：\n\n{text_report}"}}
+                {"type": "text", "data": {"text": f"[{group_label}]\n\n{text_report}"}}
             ]
             await bot.call_action(
                 "send_private_msg", user_id=int(user_id), message=message
@@ -282,10 +295,19 @@ class ReportDispatcher:
 
         if image_url:
             try:
-                caption = TraceContext.make_report_caption()
-                message = []
-                if caption:
-                    message.append({"type": "text", "data": {"text": caption}})
+                # Resolve group name for private report identification
+                group_label = group_id
+                try:
+                    adapter = self.message_sender.bot_manager.get_adapter(platform_id)
+                    if adapter:
+                        group_info = await adapter.get_group_info(group_id)
+                        if group_info and group_info.group_name:
+                            group_label = group_info.group_name
+                except Exception:
+                    pass  # Fallback to group_id
+
+                caption = f"[{group_label}]"
+                message = [{"type": "text", "data": {"text": caption}}]
 
                 # Always use base64 to avoid cross-container file path issues
                 b64_str = await self._image_to_base64(image_url)
