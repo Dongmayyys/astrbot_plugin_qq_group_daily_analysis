@@ -1,4 +1,17 @@
 {
+    "fork_info": {
+        "description": "Fork 版本信息",
+        "type": "object",
+        "hint": "此为 Fork 定制版，基于上游 SXP-Simon/astrbot_plugin_qq_group_daily_analysis 修改",
+        "items": {
+            "fork_version": {
+                "description": "Fork 版本",
+                "type": "string",
+                "default": "v4.9.3-fork.2",
+                "hint": "Fork 内部版本号，用于追踪自定义修改（不影响上游版本匹配）"
+            }
+        }
+    },
     "basic": {
         "description": "基础设置",
         "type": "object",
