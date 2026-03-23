@@ -989,3 +989,137 @@ class GroupDailyAnalysis(Star):
                 yield event.plain_result("ℹ️ 当前群已在黑名单中")
         else:
             yield event.plain_result("ℹ️ 当前为无限制模式，如需禁用请切换到黑名单模式")
+
+    # ================================================================
+    # Diagnostic command: filter status overview
+    # ================================================================
+
+    @filter.command("分析诊断", alias={"analysis_diag"})
+    @filter.permission_type(PermissionType.ADMIN)
+    async def analysis_diagnostic(self, event: AstrMessageEvent):
+        """
+        Display current group and user filter status (usable in private chat).
+        Usage: /分析诊断
+        """
+        event.should_call_llm(True)
+
+        # Ensure bot manager is ready
+        self.bot_manager.update_from_event(event)
+
+        lines: list[str] = ["📋 群分析过滤诊断", "━━━━━━━━━━━━━━━"]
+
+        # --- Section 1: Group filter mode ---
+        mode = self.config_manager.get_group_list_mode()
+        mode_display = {"whitelist": "白名单", "blacklist": "黑名单", "none": "无限制"}
+        lines.append(f"🔒 群聊权限模式: {mode_display.get(mode, mode)}")
+
+        group_list_cfg = self.config_manager.get_group_list()
+        if mode != "none" and group_list_cfg:
+            lines.append(f"📝 配置名单: {', '.join(str(g) for g in group_list_cfg)}")
+
+        # --- Section 2: Scan all groups from all platforms ---
+        lines.append("")
+        lines.append("📡 群聊扫描结果:")
+
+        allowed_groups: list[str] = []
+        blocked_groups: list[str] = []
+
+        try:
+            for platform_id in self.bot_manager.get_platform_ids():
+                adapter = self.bot_manager.get_adapter(platform_id)
+                if not adapter:
+                    continue
+
+                try:
+                    group_ids = await adapter.get_group_list()
+                except Exception:
+                    lines.append(f"  ⚠️ 平台 {platform_id}: 获取群列表失败")
+                    continue
+
+                for gid in group_ids:
+                    gid_str = str(gid).strip()
+                    if not gid_str:
+                        continue
+
+                    # Resolve group name
+                    group_name = gid_str
+                    try:
+                        info = await adapter.get_group_info(gid_str)
+                        if info and info.group_name:
+                            group_name = info.group_name
+                    except Exception:
+                        pass
+
+                    umo = f"{platform_id}:GroupMessage:{gid_str}"
+                    is_allowed = self.config_manager.is_group_allowed(umo)
+
+                    label = f"{group_name} ({gid_str})"
+                    if is_allowed:
+                        allowed_groups.append(label)
+                    else:
+                        blocked_groups.append(label)
+        except Exception as e:
+            lines.append(f"  ⚠️ 扫描异常: {e}")
+
+        if allowed_groups:
+            lines.append(f"  ✅ 允许分析 ({len(allowed_groups)}):")
+            for g in allowed_groups:
+                lines.append(f"    • {g}")
+        if blocked_groups:
+            lines.append(f"  ❌ 已排除 ({len(blocked_groups)}):")
+            for g in blocked_groups:
+                lines.append(f"    • {g}")
+        if not allowed_groups and not blocked_groups:
+            lines.append("  (未发现任何群聊，请检查平台是否在线)")
+
+        # --- Section 3: Blocked user IDs ---
+        lines.append("")
+        bot_self_ids = self.config_manager.get_bot_self_ids()
+        lines.append(f"👤 屏蔽用户 ID ({len(bot_self_ids)}):")
+
+        if bot_self_ids:
+            # Try to resolve nicknames from the first available group
+            sample_group_id = None
+            sample_adapter = None
+            if allowed_groups:
+                # Extract group ID from the first allowed group label "name (id)"
+                try:
+                    first_label = allowed_groups[0]
+                    sample_group_id = first_label.rsplit("(", 1)[-1].rstrip(")")
+                    for pid in self.bot_manager.get_platform_ids():
+                        a = self.bot_manager.get_adapter(pid)
+                        if a:
+                            sample_adapter = a
+                            break
+                except Exception:
+                    pass
+
+            for uid in bot_self_ids:
+                nickname = ""
+                if sample_adapter and sample_group_id:
+                    try:
+                        member = await sample_adapter.get_member_info(
+                            sample_group_id, uid
+                        )
+                        if member:
+                            nickname = member.card or member.nickname or ""
+                    except Exception:
+                        pass
+
+                if nickname:
+                    lines.append(f"  • {nickname} ({uid})")
+                else:
+                    lines.append(f"  • {uid}")
+        else:
+            lines.append("  (未配置，自动分析功能将不可用)")
+
+        # --- Section 4: Auto-analysis readiness ---
+        lines.append("")
+        ready = self.bot_manager.is_ready_for_auto_analysis()
+        auto_enabled = self.config_manager.get_enable_auto_analysis()
+        lines.append(
+            f"⚙️ 自动分析: {'已启用' if auto_enabled else '未启用'} | "
+            f"就绪状态: {'✅' if ready else '❌'}"
+        )
+
+        yield event.plain_result("\n".join(lines))
