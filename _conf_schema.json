@@ -7,7 +7,7 @@
             "fork_version": {
                 "description": "Fork 版本",
                 "type": "string",
-                "default": "v4.9.3-fork.2",
+                "default": "0ec17ec",
                 "hint": "Fork 内部版本号，用于追踪自定义修改（不影响上游版本匹配）"
             }
         }
