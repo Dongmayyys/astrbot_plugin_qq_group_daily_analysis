@@ -7,8 +7,8 @@
             "fork_version": {
                 "description": "Fork 版本",
                 "type": "string",
-                "default": "0ec17ec",
-                "hint": "Fork 内部版本号，用于追踪自定义修改（不影响上游版本匹配）"
+                "default": "",
+                "hint": "最新 commit: e0c5312"
             }
         }
     },
