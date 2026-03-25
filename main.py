@@ -468,7 +468,25 @@ class GroupDailyAnalysis(Star):
         platform_id = self._get_platform_id_from_event(event)
 
         if not group_id:
-            yield event.plain_result("❌ 请在群聊中使用此命令")
+            # Private chat: trigger full auto-analysis for all whitelisted groups
+            self.bot_manager.update_from_event(event)
+
+            if not self.bot_manager.is_ready_for_auto_analysis():
+                yield event.plain_result(
+                    "❌ Bot 未就绪，请检查 bot_self_ids 配置和平台连接状态"
+                )
+                return
+
+            yield event.plain_result(
+                "🔄 正在启动全量分析，完成后报告将私发给你..."
+            )
+
+            try:
+                await self.auto_scheduler._run_auto_analysis()
+                yield event.plain_result("✅ 全量分析已完成，请查看私聊消息")
+            except Exception as e:
+                logger.error(f"手动全量分析失败: {e}", exc_info=True)
+                yield event.plain_result(f"❌ 分析失败: {str(e)}")
             return
 
         # 更新bot实例

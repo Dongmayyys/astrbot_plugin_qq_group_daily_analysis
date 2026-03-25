@@ -8,7 +8,7 @@
                 "description": "Fork 版本",
                 "type": "string",
                 "default": "",
-                "hint": "最新 commit: e0c5312"
+                "hint": "最后更新: 2026-03-25 23:59"
             }
         }
     },
