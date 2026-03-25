@@ -149,6 +149,10 @@ class AutoScheduler:
         # 先清理旧任务
         self.unschedule_jobs(context)
 
+        # Reset _terminating since we are (re-)scheduling, meaning the plugin is alive.
+        # unschedule_jobs sets _terminating=True, but that's only intended for shutdown.
+        self._terminating = False
+
         if not self.config_manager.get_enable_auto_analysis():
             logger.info("自动分析功能未启用，不注册定时任务")
             return
