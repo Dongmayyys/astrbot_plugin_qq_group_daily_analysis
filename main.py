@@ -477,25 +477,7 @@ class GroupDailyAnalysis(Star):
             platform_id = self._get_platform_id_from_event(event)
 
             if not group_id:
-                # Private chat: trigger full auto-analysis for all whitelisted groups
-                self.bot_manager.update_from_event(event)
-
-                if not self.bot_manager.is_ready_for_auto_analysis():
-                    yield event.plain_result(
-                        "❌ Bot 未就绪，请检查 bot_self_ids 配置和平台连接状态"
-                    )
-                    return
-
-                yield event.plain_result(
-                    "🔄 正在启动全量分析，完成后报告将私发给你..."
-                )
-
-                try:
-                    await self.auto_scheduler._run_auto_analysis()
-                    yield event.plain_result("✅ 全量分析已完成，请查看私聊消息")
-                except Exception as e:
-                    logger.error(f"手动全量分析失败: {e}", exc_info=True)
-                    yield event.plain_result(f"❌ 分析失败: {str(e)}")
+                yield event.plain_result("❌ 请在群聊中使用此命令")
                 return
 
             # 更新bot实例
@@ -1047,7 +1029,7 @@ class GroupDailyAnalysis(Star):
     # Diagnostic command: filter status overview
     # ================================================================
 
-    @filter.command("分析诊断", alias={"analysis_diag"})
+    @filter.command("白名单", alias={"whitelist_diag"})
     @filter.permission_type(PermissionType.ADMIN)
     async def analysis_diagnostic(self, event: AstrMessageEvent):
         """
@@ -1176,3 +1158,37 @@ class GroupDailyAnalysis(Star):
         )
 
         yield event.plain_result("\n".join(lines))
+
+    # ================================================================
+    # Fork: trigger full auto-analysis from private chat
+    # ================================================================
+
+    @filter.command("总结", alias={"summary"})
+    @filter.permission_type(PermissionType.ADMIN)
+    async def trigger_full_analysis(self, event: AstrMessageEvent):
+        """
+        Manually trigger the full auto-analysis pipeline.
+        Analyzes all whitelisted groups and delivers reports via private message.
+        Usage: /总结
+        """
+        event.should_call_llm(True)
+
+        # Ensure bot manager is ready
+        self.bot_manager.update_from_event(event)
+
+        if not self.bot_manager.is_ready_for_auto_analysis():
+            yield event.plain_result(
+                "❌ Bot 未就绪，请检查 bot_self_ids 配置和平台连接状态"
+            )
+            return
+
+        yield event.plain_result(
+            "🔄 正在启动全量分析，完成后报告将私发给你..."
+        )
+
+        try:
+            await self.auto_scheduler._run_auto_analysis()
+            yield event.plain_result("✅ 全量分析已完成，请查看私聊消息")
+        except Exception as e:
+            logger.error(f"手动全量分析失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 分析失败: {str(e)}")
