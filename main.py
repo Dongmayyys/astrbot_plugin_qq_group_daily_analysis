@@ -1187,6 +1187,11 @@ class GroupDailyAnalysis(Star):
         )
 
         try:
+            logger.info(
+                f"[/总结] 调用 _run_auto_analysis, "
+                f"_terminating={self.auto_scheduler._terminating}, "
+                f"bot_instances={list(self.auto_scheduler.bot_manager._bot_instances.keys())}"
+            )
             await self.auto_scheduler._run_auto_analysis()
             yield event.plain_result("✅ 全量分析已完成，请查看私聊消息")
         except Exception as e:
